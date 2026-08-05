@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
+import Link from "next/link";
 import {
   AlertTriangle,
   RefreshCw,
@@ -228,69 +229,100 @@ function AgentWorkstation({
   status,
   metric,
   metricLabel,
+  mood,
 }: {
   role: AgentRole;
   status: "idle" | "working" | "alert";
   metric: number | string;
   metricLabel: string;
+  mood: "reviewing" | "thinking" | "confused" | "excited" | "calm";
 }) {
   const c = roleConfig[role];
   const Icon = c.icon;
   const lines = useMemo(
-    () =>
-      Array.from({ length: 5 }, (_, i) => 30 + ((i * 17 + role.length * 3) % 55)),
+    () => Array.from({ length: 6 }, (_, i) => 25 + ((i * 19 + role.length * 5) % 60)),
     [role]
   );
 
+  const moodMeta: Record<string, { emoji: string; label: string; color: string }> = {
+    reviewing: { emoji: "🧐", label: "Reviewing code", color: "text-indigo-300" },
+    thinking: { emoji: "🤔", label: "Thinking hard", color: "text-amber-300" },
+    confused: { emoji: "😕", label: "Checking anomaly", color: "text-orange-300" },
+    excited: { emoji: "🤩", label: "Clean pass!", color: "text-emerald-300" },
+    calm: { emoji: "😎", label: "Standing by", color: "text-slate-400" },
+  };
+  const m = moodMeta[mood];
+
   return (
-    <div className="rounded-2xl border border-slate-700/60 bg-[#0a101c] p-3 anim-glow-border overflow-hidden">
-      <div className="mb-2 flex items-center gap-2">
-        <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${c.bg}`}>
-          <Icon className={`h-4 w-4 ${c.color}`} />
+    <div className="flex flex-col rounded-2xl border border-slate-700/70 bg-[#0a101c] p-4 shadow-[0_0_30px_rgba(0,0,0,0.25)] anim-glow-border min-h-[200px]">
+      {/* Person header */}
+      <div className="mb-3 flex items-start gap-3">
+        <div className="relative">
+          <div
+            className={`flex h-12 w-12 items-center justify-center rounded-2xl text-2xl ${c.bg} ring-1 ring-white/10`}
+          >
+            {m.emoji}
+          </div>
+          <div className={`absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full ${c.bg} ring-2 ring-[#0a101c]`}>
+            <Icon className={`h-3 w-3 ${c.color}`} />
+          </div>
         </div>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-xs font-semibold text-white">{c.label}</p>
-          <p className="flex items-center gap-1 text-[10px] text-slate-500">
+        <div className="min-w-0 flex-1 pt-0.5">
+          <p className="text-sm font-semibold text-white leading-tight">{c.label}</p>
+          <p className={`mt-0.5 text-[11px] font-medium ${m.color}`}>{m.label}</p>
+          <p className="mt-1 flex items-center gap-1.5 text-[10px] text-slate-500">
             {status === "working" && (
               <>
                 <span className="typing-dots text-cyan-400">
                   <span /><span /><span />
                 </span>
-                analyzing
+                working on laptop
               </>
             )}
-            {status === "alert" && <span className="text-red-400">threat focus</span>}
-            {status === "idle" && <span className="text-emerald-400/80">monitoring</span>}
+            {status === "alert" && <span className="text-red-400">focused on threat</span>}
+            {status === "idle" && <span className="text-emerald-400/70">idle monitor</span>}
           </p>
         </div>
-        <div className="text-right">
-          <p className={`text-sm font-bold ${c.color}`}>{metric}</p>
-          <p className="text-[9px] text-slate-500">{metricLabel}</p>
+        <div className="text-right shrink-0">
+          <p className={`text-xl font-bold tabular-nums ${c.color}`}>{metric}</p>
+          <p className="text-[10px] text-slate-500">{metricLabel}</p>
         </div>
       </div>
 
-      {/* Fake laptop screen */}
-      <div className="agent-screen anim-flicker relative h-20 rounded-lg border border-slate-700/80 p-2">
+      {/* Laptop screen */}
+      <div className="agent-screen anim-flicker relative mt-auto h-24 rounded-xl border border-slate-600/80 p-2.5">
         <div className="scanline-overlay" />
         <MatrixRain />
-        <div className="relative z-10 flex h-full items-end gap-1 px-1">
+        {/* code-ish lines */}
+        <div className="relative z-10 mb-1 space-y-1">
+          <div className="h-1 w-[70%] rounded bg-slate-600/80" />
+          <div className="h-1 w-[45%] rounded bg-slate-600/50" />
+          <div className="h-1 w-[55%] rounded" style={{ background: c.accent + "66" }} />
+        </div>
+        <div className="relative z-10 flex h-10 items-end gap-1 px-0.5">
           {lines.map((h, i) => (
             <div
               key={i}
               className="flex-1 rounded-t-sm"
               style={{
                 height: `${h}%`,
-                background: `linear-gradient(to top, ${c.accent}55, ${c.accent})`,
-                animation: `bar-pulse ${1.2 + i * 0.15}s ease-in-out infinite`,
-                animationDelay: `${i * 0.1}s`,
+                background: `linear-gradient(to top, ${c.accent}44, ${c.accent})`,
+                animation: `bar-pulse ${1.1 + i * 0.12}s ease-in-out infinite`,
+                animationDelay: `${i * 0.08}s`,
               }}
             />
           ))}
         </div>
-        <div className="absolute bottom-1 right-2 z-10 font-mono text-[8px] text-slate-500">
-          LIVE
+        <div className="absolute bottom-1.5 left-2.5 z-10 font-mono text-[8px] text-slate-500">
+          laptop · live
+        </div>
+        <div className="absolute bottom-1.5 right-2.5 z-10 font-mono text-[8px]" style={{ color: c.accent }}>
+          {mood.toUpperCase()}
         </div>
       </div>
+      {/* laptop base */}
+      <div className="mx-auto mt-1 h-1.5 w-[70%] rounded-b-md bg-slate-700/80" />
+      <div className="mx-auto h-1 w-[40%] rounded-b bg-slate-800" />
     </div>
   );
 }
@@ -537,8 +569,12 @@ export default function DashboardPage() {
               <Bot className="h-5 w-5 text-white" />
             </div>
             <div>
-              <h1 className="text-lg font-semibold tracking-tight text-white">CodeBoss</h1>
-              <p className="font-mono text-[10px] text-slate-500">SOC · {clock}</p>
+              <h1 className="text-base font-semibold tracking-tight text-white sm:text-lg">
+                LIVE CYBERSECURITY SOC
+              </h1>
+              <p className="text-[11px] text-cyan-400/90">
+                Software Team Monitor · <span className="font-mono text-slate-500">{clock}</span>
+              </p>
             </div>
           </div>
 
@@ -603,9 +639,9 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="mx-auto max-w-7xl px-6 py-6">
+      <div className="mx-auto max-w-7xl px-5 py-8 sm:px-8">
         {/* KPI + mini charts */}
-        <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+        <div className="mb-8 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
           {[
             { label: "Critical", value: criticalCount, text: "text-red-400", border: "border-red-500/25", color: "from-red-500/20" },
             { label: "High", value: highCount, text: "text-orange-400", border: "border-orange-500/25", color: "from-orange-500/20" },
@@ -625,7 +661,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Animated graphs row */}
-        <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="mb-8 grid grid-cols-1 gap-5 md:grid-cols-2">
           <div className="relative overflow-hidden rounded-2xl border border-slate-800 bg-[#0a101c] p-4">
             <div className="scanline-overlay" />
             <div className="mb-2 flex items-center justify-between">
@@ -676,32 +712,78 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Agent workstations */}
-        <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <AgentWorkstation
-            role="architect"
-            status={scanning || streaming ? "working" : criticalCount > 0 ? "alert" : "idle"}
-            metric={commits.length}
-            metricLabel="commits"
-          />
-          <AgentWorkstation
-            role="senior-dev"
-            status={scanning || streaming ? "working" : findings.length > 0 ? "working" : "idle"}
-            metric={findings.length}
-            metricLabel="findings"
-          />
-          <AgentWorkstation
-            role="tester"
-            status={criticalCount + highCount > 0 ? "alert" : scanning ? "working" : "idle"}
-            metric={criticalCount + highCount}
-            metricLabel="threats"
-          />
-          <AgentWorkstation
-            role="researcher"
-            status={scanning || streaming ? "working" : "idle"}
-            metric={issues.length}
-            metricLabel="issues"
-          />
+        {/* Agent workstations — people at laptops */}
+        <div className="mb-8">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+              Software team on duty
+            </h2>
+            <p className="text-[10px] text-slate-600">reviewing · thinking · reacting in real time</p>
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <AgentWorkstation
+              role="architect"
+              status={scanning || streaming ? "working" : criticalCount > 0 ? "alert" : "idle"}
+              metric={commits.length}
+              metricLabel="commits"
+              mood={
+                scanning || streaming
+                  ? "thinking"
+                  : criticalCount > 0
+                  ? "confused"
+                  : findings.length === 0
+                  ? "excited"
+                  : "reviewing"
+              }
+            />
+            <AgentWorkstation
+              role="senior-dev"
+              status={scanning || streaming ? "working" : findings.length > 0 ? "working" : "idle"}
+              metric={findings.length}
+              metricLabel="findings"
+              mood={
+                scanning || streaming
+                  ? "reviewing"
+                  : criticalCount > 0
+                  ? "confused"
+                  : findings.length === 0
+                  ? "excited"
+                  : "thinking"
+              }
+            />
+            <AgentWorkstation
+              role="tester"
+              status={criticalCount + highCount > 0 ? "alert" : scanning ? "working" : "idle"}
+              metric={criticalCount + highCount}
+              metricLabel="threats"
+              mood={
+                criticalCount > 0
+                  ? "confused"
+                  : highCount > 0
+                  ? "thinking"
+                  : scanning
+                  ? "reviewing"
+                  : findings.length === 0
+                  ? "excited"
+                  : "calm"
+              }
+            />
+            <AgentWorkstation
+              role="researcher"
+              status={scanning || streaming ? "working" : "idle"}
+              metric={issues.length}
+              metricLabel="issues"
+              mood={
+                scanning || streaming
+                  ? "thinking"
+                  : issues.length > 2
+                  ? "reviewing"
+                  : findings.length === 0
+                  ? "excited"
+                  : "calm"
+              }
+            />
+          </div>
         </div>
 
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
@@ -891,6 +973,10 @@ export default function DashboardPage() {
 
         <p className="mt-6 text-center font-mono text-[10px] text-slate-600">
           CODEBOSS SOC · AUTO CRITICAL/HIGH ISSUES · CLAUDE CODE FIX LOOP · TARGET {repo || "—"}
+          {" · "}
+          <Link href="/about" className="text-cyan-500/80 underline-offset-2 hover:text-cyan-400 hover:underline">
+            What is CodeBoss?
+          </Link>
         </p>
       </div>
     </div>
