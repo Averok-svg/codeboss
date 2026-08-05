@@ -1,7 +1,6 @@
 /**
- * Free rule-based analyzer.
- * No LLM cost. Scans commit messages and simple patterns
- * then suggests issues for Claude Code to discuss and fix.
+ * CodeBoss code reviewer — reviews REAL commit diffs (Claude code changes),
+ * not just commit message wording.
  */
 
 export interface Finding {
@@ -10,75 +9,209 @@ export interface Finding {
   description: string;
   severity: "critical" | "high" | "medium" | "low";
   category: "security" | "architecture" | "performance" | "code-quality" | "testing";
-  source: "commit-scan" | "heuristic";
+  source: "diff-scan" | "commit-scan" | "heuristic";
+  commitSha?: string;
+  files?: string[];
 }
 
-const SECURITY_PATTERNS = [
-  { re: /password|secret|api[_-]?key|token|private[_-]?key/i, title: "Possible secret or credential in commit", severity: "critical" as const },
-  { re: /rls|row level security/i, title: "RLS / Row Level Security related change", severity: "high" as const },
-  { re: /auth|jwt|session/i, title: "Authentication related change – review carefully", severity: "high" as const },
-  { re: /cors|csrf|xss|injection/i, title: "Security keyword detected", severity: "high" as const },
+type CommitForAnalysis = {
+  sha: string;
+  fullSha?: string;
+  message: string;
+  author: string;
+  date?: string;
+  patchText?: string;
+  files?: { filename: string; patch?: string; status?: string }[];
+};
+
+const DIFF_RULES: {
+  re: RegExp;
+  title: string;
+  severity: Finding["severity"];
+  category: Finding["category"];
+  why: string;
+}[] = [
+  {
+    re: /(?:api[_-]?key|secret[_-]?key|private[_-]?key|access[_-]?token)\s*[:=]\s*['"][^'"]{8,}['"]/i,
+    title: "Hardcoded secret or API key in diff",
+    severity: "critical",
+    category: "security",
+    why: "Literal credential-like assignment found in the patch.",
+  },
+  {
+    re: /Bearer\s+[A-Za-z0-9\-_\.]{20,}/,
+    title: "Bearer token appears in code diff",
+    severity: "critical",
+    category: "security",
+    why: "A long Bearer token string was present in the change.",
+  },
+  {
+    re: /-----BEGIN (?:RSA |EC )?PRIVATE KEY-----/,
+    title: "Private key material in diff",
+    severity: "critical",
+    category: "security",
+    why: "PEM private key block detected in the commit patch.",
+  },
+  {
+    re: /password\s*[:=]\s*['"][^'"]+['"]/i,
+    title: "Hardcoded password in diff",
+    severity: "critical",
+    category: "security",
+    why: "Password assigned as a string literal in code.",
+  },
+  {
+    re: /service_role|SUPABASE_SERVICE_ROLE/i,
+    title: "Service role key usage in diff",
+    severity: "critical",
+    category: "security",
+    why: "Service role must never ship to the client; verify server-only usage.",
+  },
+  {
+    re: /dangerouslySetInnerHTML/i,
+    title: "dangerouslySetInnerHTML in diff",
+    severity: "high",
+    category: "security",
+    why: "XSS risk if user content is not sanitized.",
+  },
+  {
+    re: /eval\s*\(|new Function\s*\(/,
+    title: "eval / dynamic Function in diff",
+    severity: "high",
+    category: "security",
+    why: "Dynamic code execution is high risk.",
+  },
+  {
+    re: /cors\(\s*\{\s*origin\s*:\s*true/i,
+    title: "Permissive CORS origin: true",
+    severity: "high",
+    category: "security",
+    why: "Wide-open CORS can expose APIs to any site.",
+  },
+  {
+    re: /@ts-ignore|@ts-nocheck|\bas any\b/,
+    title: "Type safety bypass in diff",
+    severity: "medium",
+    category: "code-quality",
+    why: "Type escapes hide bugs; prefer proper types.",
+  },
+  {
+    re: /console\.(log|debug|info)\(/,
+    title: "Console debug left in diff",
+    severity: "low",
+    category: "code-quality",
+    why: "Debug logging may leak data in production.",
+  },
+  {
+    re: /\bTODO\b|\bFIXME\b|\bHACK\b/,
+    title: "TODO/FIXME/HACK in shipped diff",
+    severity: "low",
+    category: "code-quality",
+    why: "Incomplete work markers in committed code.",
+  },
+  {
+    re: /disable\s+rls|ENABLE ROW LEVEL SECURITY|ROW LEVEL SECURITY/i,
+    title: "RLS-related change in diff",
+    severity: "high",
+    category: "security",
+    why: "Row Level Security changes need careful review.",
+  },
 ];
 
-const QUALITY_PATTERNS = [
-  { re: /todo|fixme|hack|temporary/i, title: "Temporary / TODO left in code", severity: "medium" as const },
-  { re: /console\.log|debugger/i, title: "Debug statements may be present", severity: "low" as const },
-  { re: /any\b|@ts-ignore|@ts-nocheck/i, title: "Type safety weakened", severity: "medium" as const },
-  { re: /force push|hard reset/i, title: "Destructive git operation mentioned", severity: "high" as const },
-];
+function addedLinesOnly(patch: string): string {
+  return patch
+    .split("\n")
+    .filter((l) => l.startsWith("+") && !l.startsWith("+++"))
+    .map((l) => l.slice(1))
+    .join("\n");
+}
 
-export function analyzeCommits(
-  commits: { sha: string; message: string; author: string; date: string }[]
-): Finding[] {
+export function analyzeCommitDiffs(commits: CommitForAnalysis[]): Finding[] {
   const findings: Finding[] = [];
   const seen = new Set<string>();
 
   for (const commit of commits) {
-    const msg = commit.message;
+    const sha = (commit.fullSha || commit.sha || "").slice(0, 7);
+    const files = commit.files || [];
+    const patchAll =
+      commit.patchText ||
+      files.map((f) => "FILE " + f.filename + "\n" + (f.patch || "")).join("\n\n");
 
-    for (const p of SECURITY_PATTERNS) {
-      if (p.re.test(msg)) {
-        const key = `${p.title}-${commit.sha}`;
+    if (!patchAll.trim()) {
+      if (/password|secret|api[_-]?key|token/i.test(commit.message)) {
+        const key = "msg-secret-" + sha;
         if (!seen.has(key)) {
           seen.add(key);
           findings.push({
-            id: `F-${commit.sha}-${findings.length}`,
-            title: p.title,
-            description: `Commit \`${commit.sha}\` by ${commit.author}: "${msg}"\n\nCodeBoss flagged this because the message matched a security-related pattern. Please review the change carefully.`,
-            severity: p.severity,
+            id: "F-" + sha + "-msg",
+            title: "Commit message suggests secrets — no diff loaded",
+            description:
+              "Commit `" +
+              sha +
+              "` by " +
+              commit.author +
+              ": \"" +
+              commit.message +
+              "\". Diff unavailable; Claude should still run git show.",
+            severity: "medium",
             category: "security",
             source: "commit-scan",
+            commitSha: sha,
           });
         }
       }
+      continue;
     }
 
-    for (const p of QUALITY_PATTERNS) {
-      if (p.re.test(msg)) {
-        const key = `${p.title}-${commit.sha}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          findings.push({
-            id: `F-${commit.sha}-${findings.length}`,
-            title: p.title,
-            description: `Commit \`${commit.sha}\`: "${msg}"\n\nThis looks like a code-quality concern. Claude Code should investigate and discuss before fixing.`,
-            severity: p.severity,
-            category: "code-quality",
-            source: "commit-scan",
-          });
-        }
-      }
+    const added = addedLinesOnly(patchAll);
+    const scanText = added.length > 20 ? added : patchAll;
+    const fileNames = files.map((f) => f.filename).filter(Boolean);
+
+    for (const rule of DIFF_RULES) {
+      if (!rule.re.test(scanText)) continue;
+      const key = rule.title + "-" + sha;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const matchedFiles = fileNames.filter((fn) => {
+        const filePatch = files.find((f) => f.filename === fn)?.patch || "";
+        return rule.re.test(addedLinesOnly(filePatch) || filePatch);
+      });
+
+      findings.push({
+        id: "F-" + sha + "-" + findings.length,
+        title: rule.title,
+        description: [
+          "**Code review (diff)** on commit `" + sha + "` by " + commit.author,
+          "Message: \"" + commit.message.split("\n")[0] + "\"",
+          matchedFiles.length
+            ? "Files: " + matchedFiles.slice(0, 8).join(", ")
+            : fileNames.length
+            ? "Files touched: " + fileNames.slice(0, 8).join(", ")
+            : "",
+          "",
+          rule.why,
+          "",
+          "Claude Code: run git show " + (commit.fullSha || commit.sha) + " and fix or explain why this is safe.",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+        severity: rule.severity,
+        category: rule.category,
+        source: "diff-scan",
+        commitSha: sha,
+        files: matchedFiles.length ? matchedFiles : fileNames.slice(0, 8),
+      });
     }
   }
 
-  if (findings.length < 2) {
+  if (findings.length === 0) {
     findings.push({
-      id: "F-baseline-arch",
-      title: "Architecture & RLS health check recommended",
+      id: "F-clean-pass",
+      title: "Diff scan: no critical patterns in recent patches",
       description:
-        "No critical patterns found in recent commits. Still recommended: verify all Supabase tables have proper RLS policies, rate limiting on public routes, and that data access goes through a service layer.",
-      severity: "medium",
-      category: "architecture",
+        "CodeBoss reviewed recent commit diffs (not only messages). No hardcoded secrets, service-role leaks, eval, or obvious dangerous patterns matched. Continue watching new Claude commits.",
+      severity: "low",
+      category: "code-quality",
       source: "heuristic",
     });
   }
@@ -86,47 +219,25 @@ export function analyzeCommits(
   return findings;
 }
 
+export function analyzeCommits(commits: CommitForAnalysis[]): Finding[] {
+  return analyzeCommitDiffs(commits);
+}
+
 export function findingToIssueBody(f: Finding): string {
-  return `## CodeBoss Alert (strict multi-reviewer gate)
-
-**Severity:** ${f.severity.toUpperCase()}  
-**Category:** ${f.category}  
-**Source:** ${f.source}  
-**Status gate:** awaiting-grok-review
-
-### Problem
-${f.description}
-
-### Automated protocol (do not skip)
-
-**1) Claude Code (fixer)**
-- Investigate with \`git show\` on the referenced commit — never trust this description alone
-- Comment: genuine vs false positive + evidence
-- If genuine: implement the fix (tsc/lint/tests as required)
-- Comment a short resolution summary
-- **DO NOT CLOSE**
-- Keep labels \`codeboss\` + \`awaiting-grok-review\`
-
-**2) CodeBoss Master (Google AI Studio) — required review comments**
-After Claude has commented (and fixed if needed), CodeBoss Master must comment on THIS issue:
-- **Genuineness review:** is the original flag real or false positive? (with reasons)
-- **Resolution review:** if Claude fixed something, was the fix adequate and safe?
-- If not OK: comment what must change (do not approve)
-- If OK: comment exactly this line (plus a short rationale):
-  \`REVIEWED AND FINAL APPROVED BY CODEBOSS MASTER\`
-
-**3) Grok (final gate)**
-- Review Claude + CodeBoss Master comments
-- If satisfied, comment exactly: \`APPROVED\`
-- If not, request changes
-
-**4) Claude Code (close only after both approvals)**
-- Close ONLY when the issue comments include BOTH:
-  - \`REVIEWED AND FINAL APPROVED BY CODEBOSS MASTER\`
-  - \`APPROVED\`
-- Then remove \`awaiting-grok-review\` if possible and close
-- If either reviewer requested changes: fix, comment again, wait for new approvals
-
----
-*CodeBoss · Claude fixes · CodeBoss Master reviews · Grok final APPROVED · then close*`;
+  return (
+    "## CodeBoss code review\n\n" +
+    "**Severity:** " + f.severity.toUpperCase() + "  \n" +
+    "**Category:** " + f.category + "  \n" +
+    "**Source:** " + f.source +
+    (f.commitSha ? "  \n**Commit:** `" + f.commitSha + "`" : "") +
+    (f.files && f.files.length ? "  \n**Files:** " + f.files.join(", ") : "") +
+    "\n\n### Finding\n" +
+    f.description +
+    "\n\n### What Claude should do\n" +
+    "1. Inspect the real diff (git show)\n" +
+    "2. Confirm genuine vs false positive\n" +
+    "3. Fix the code if genuine\n" +
+    "4. Comment what changed\n\n" +
+    "---\n*CodeBoss reviews Claude code via commit diffs*"
+  );
 }

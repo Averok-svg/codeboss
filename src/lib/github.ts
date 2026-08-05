@@ -111,3 +111,45 @@ export function parseRepoString(repo: string): { owner: string; repo: string } |
   }
   return null;
 }
+
+export async function getCommitDiff(config: GitHubConfig, sha: string) {
+  const octokit = createOctokit(config.token);
+  const { data } = await octokit.repos.getCommit({
+    owner: config.owner,
+    repo: config.repo,
+    ref: sha,
+  });
+  const files = (data.files || []).map((f) => ({
+    filename: f.filename,
+    status: f.status,
+    additions: f.additions,
+    deletions: f.deletions,
+    patch: f.patch || "",
+  }));
+  return {
+    sha: data.sha,
+    message: data.commit.message,
+    author: data.commit.author?.name || data.author?.login || "unknown",
+    files,
+    // combined patch text for scanning (capped)
+    patchText: files
+      .map((f) => `FILE ${f.filename}\n${f.patch}`)
+      .join("\n\n")
+      .slice(0, 80000),
+  };
+}
+
+export async function getRecentCommitsWithDiffs(config: GitHubConfig, count = 12) {
+  const commits = await getRecentCommits(config, count);
+  const detailed = [];
+  for (const c of commits) {
+    try {
+      const diff = await getCommitDiff(config, c.fullSha || c.sha);
+      detailed.push({ ...c, ...diff, fullSha: c.fullSha || diff.sha });
+    } catch {
+      detailed.push({ ...c, files: [], patchText: "" });
+    }
+  }
+  return detailed;
+}
+
