@@ -38,6 +38,7 @@ interface Finding {
   description: string;
   severity: "critical" | "high" | "medium" | "low";
   category: string;
+  source?: string;
 }
 
 interface Issue {
@@ -343,17 +344,27 @@ export default function DashboardPage() {
   const [scanDone, setScanDone] = useState(false);
   const [lastScan, setLastScan] = useState<string | null>(null);
   const [autoCreated, setAutoCreated] = useState(0);
+  const [diffsLoaded, setDiffsLoaded] = useState(0);
+  const [scanMode, setScanMode] = useState("");
+  const [scanPulse, setScanPulse] = useState(0);
+  const [nowTick, setNowTick] = useState(Date.now());
   const [streaming, setStreaming] = useState(false);
   const [clock, setClock] = useState("");
   const feedRef = useRef<HTMLDivElement>(null);
   const streamRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const fullMessagesRef = useRef<AgentMessage[]>([]);
 
-  const chartA = useMemo(() => fakeChartData(1), []);
-  const chartB = useMemo(() => fakeChartData(2.4), []);
+  const chartA = useMemo(() => {
+    const base = fakeChartData(1 + (findings.length % 5) * 0.15);
+    return base.map((d, i) => ({ ...d, v: d.v + (scanPulse % 7) * 0.3 * ((i % 3) - 1) }));
+  }, [findings.length, scanPulse]);
+  const chartB = useMemo(() => {
+    const base = fakeChartData(2.4 + (diffsLoaded % 4) * 0.1);
+    return base.map((d, i) => ({ ...d, v: d.v + (scanPulse % 5) * 0.4 * ((i % 2) - 0.5) }));
+  }, [diffsLoaded, scanPulse]);
 
   useEffect(() => {
-    const tick = () =>
+    const tick = () => {
       setClock(
         new Date().toLocaleTimeString([], {
           hour: "2-digit",
@@ -361,6 +372,9 @@ export default function DashboardPage() {
           second: "2-digit",
         })
       );
+      setNowTick(Date.now());
+      setScanPulse((p) => p + 1);
+    };
     tick();
     const t = setInterval(tick, 1000);
     return () => clearInterval(t);
@@ -416,6 +430,8 @@ export default function DashboardPage() {
       setFindings(nextFindings);
       setActivity(an.activity || []);
       setAutoCreated(an.autoCreated || 0);
+      setDiffsLoaded(an.diffsLoaded || 0);
+      setScanMode(an.mode || "");
       if (an.scannedAt) setLastScan(an.scannedAt);
       if (!an.issues) {
         const iss = await fetch("/api/issues").then((r) => r.json());
@@ -640,22 +656,56 @@ export default function DashboardPage() {
       </div>
 
       <div className="mx-auto max-w-7xl px-5 py-8 sm:px-8">
+        {/* Live status strip */}
+        <div className="mb-4 flex flex-wrap items-center gap-2 text-[11px]">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1 font-medium text-cyan-300">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-cyan-400" />
+            {scanMode === "diff-code-review" ? "DIFF CODE REVIEW ON" : "MONITOR ON"}
+          </span>
+          <span className="rounded-full border border-slate-700 bg-slate-900/80 px-3 py-1 font-mono text-slate-400">
+            pulse {scanPulse % 1000}
+          </span>
+          <span className="rounded-full border border-slate-700 bg-slate-900/80 px-3 py-1 text-slate-400">
+            last scan{" "}
+            {lastScan
+              ? Math.max(0, Math.floor((nowTick - new Date(lastScan).getTime()) / 1000)) + "s ago"
+              : "—"}
+          </span>
+          {activity[0] && (
+            <span className="max-w-md truncate rounded-full border border-indigo-500/20 bg-indigo-500/10 px-3 py-1 text-indigo-200">
+              {activity[activity.length - 1]?.message || activity[0]?.message}
+            </span>
+          )}
+        </div>
+
         {/* KPI + mini charts */}
         <div className="mb-8 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
           {[
-            { label: "Critical", value: criticalCount, text: "text-red-400", border: "border-red-500/25", color: "from-red-500/20" },
-            { label: "High", value: highCount, text: "text-orange-400", border: "border-orange-500/25", color: "from-orange-500/20" },
-            { label: "Findings", value: findings.length, text: "text-amber-400", border: "border-amber-500/25", color: "from-amber-500/20" },
-            { label: "Open Issues", value: issues.length, text: "text-indigo-400", border: "border-indigo-500/25", color: "from-indigo-500/20" },
-            { label: "Commits", value: commits.length, text: "text-emerald-400", border: "border-emerald-500/25", color: "from-emerald-500/20" },
-            { label: "Auto Issues", value: autoCreated, text: "text-cyan-400", border: "border-cyan-500/25", color: "from-cyan-500/20" },
+            { label: "Critical", value: criticalCount, text: "text-red-400", border: "border-red-500/25", color: "from-red-500/20", hint: "blockers" },
+            { label: "High", value: highCount, text: "text-orange-400", border: "border-orange-500/25", color: "from-orange-500/20", hint: "urgent" },
+            { label: "Diff findings", value: findings.filter((f) => f.source === "diff-scan").length || findings.length, text: "text-amber-400", border: "border-amber-500/25", color: "from-amber-500/20", hint: "from patches" },
+            { label: "Patches read", value: diffsLoaded || commits.length, text: "text-cyan-400", border: "border-cyan-500/25", color: "from-cyan-500/20", hint: "git diffs" },
+            { label: "Open issues", value: issues.length, text: "text-indigo-400", border: "border-indigo-500/25", color: "from-indigo-500/20", hint: "on GitHub" },
+            {
+              label: "Health",
+              value: Math.max(0, 100 - criticalCount * 25 - highCount * 12 - Math.max(0, findings.length - 1) * 3),
+              text: "text-emerald-400",
+              border: "border-emerald-500/25",
+              color: "from-emerald-500/20",
+              hint: "score",
+            },
           ].map((kpi) => (
             <div
               key={kpi.label}
-              className={`rounded-2xl border ${kpi.border} bg-gradient-to-b ${kpi.color} to-transparent p-4 transition hover:scale-[1.02]`}
+              className={`group relative overflow-hidden rounded-2xl border ${kpi.border} bg-gradient-to-b ${kpi.color} to-transparent p-4 transition hover:scale-[1.03]`}
             >
+              <div className="pointer-events-none absolute -right-4 -top-4 h-16 w-16 rounded-full bg-white/5 blur-xl transition group-hover:bg-white/10" />
               <p className="text-[10px] font-medium uppercase tracking-wider text-slate-500">{kpi.label}</p>
-              <p className={`mt-1 text-2xl font-bold ${kpi.text}`}>{kpi.value}</p>
+              <p className={`mt-1 text-2xl font-bold tabular-nums tracking-tight ${kpi.text} transition-all`}>
+                {kpi.value}
+                {kpi.label === "Health" ? <span className="text-sm font-semibold text-slate-500">%</span> : null}
+              </p>
+              <p className="mt-1 text-[10px] text-slate-500">{kpi.hint}</p>
             </div>
           ))}
         </div>
