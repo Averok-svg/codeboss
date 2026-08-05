@@ -656,6 +656,15 @@ export default function DashboardPage() {
       </div>
 
       <div className="mx-auto max-w-7xl px-5 py-8 sm:px-8">
+        <div className="mb-6 animate-pulse rounded-xl border border-cyan-400/40 bg-gradient-to-r from-cyan-500/20 via-indigo-500/20 to-emerald-500/20 px-4 py-3 text-center">
+          <p className="text-sm font-bold tracking-wide text-cyan-200">
+            CODEBOSS LIVE · DIFF CODE REVIEW · v2026.08.05
+          </p>
+          <p className="mt-1 text-[11px] text-slate-300">
+            If you see this banner, the new UI is deployed. Pulse &amp; health KPIs update every second.
+          </p>
+        </div>
+
         {/* Live status strip */}
         <div className="mb-4 flex flex-wrap items-center gap-2 text-[11px]">
           <span className="inline-flex items-center gap-1.5 rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1 font-medium text-cyan-300">
