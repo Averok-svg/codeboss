@@ -225,7 +225,7 @@ export function analyzeCommits(commits: CommitForAnalysis[]): Finding[] {
 
 export function findingToIssueBody(f: Finding): string {
   return (
-    "## CodeBoss code review\n\n" +
+    "## CodeBoss code review — Finnexus\n\n" +
     "**Severity:** " + f.severity.toUpperCase() + "  \n" +
     "**Category:** " + f.category + "  \n" +
     "**Source:** " + f.source +
@@ -233,11 +233,11 @@ export function findingToIssueBody(f: Finding): string {
     (f.files && f.files.length ? "  \n**Files:** " + f.files.join(", ") : "") +
     "\n\n### Finding\n" +
     f.description +
-    "\n\n### What Claude should do\n" +
-    "1. Inspect the real diff (git show)\n" +
-    "2. Confirm genuine vs false positive\n" +
-    "3. Fix the code if genuine\n" +
-    "4. Comment what changed\n\n" +
-    "---\n*CodeBoss reviews Claude code via commit diffs*"
+    "\n\n### Pipeline (Finnexus)\n" +
+    "1. CodeBoss reviewed this Finnexus diff\n" +
+    "2. Claude Code investigates and fixes Finnexus if needed\n" +
+    "3. CodeBoss Master reviews Finnexus code and comments findings\n" +
+    "4. Close only after comment contains: REVIEWED AND FINAL APPROVED BY CODEBOSS MASTER\n\n" +
+    "---\n*App: Finnexus · Monitor: CodeBoss · QA: CodeBoss Master*"
   );
 }
