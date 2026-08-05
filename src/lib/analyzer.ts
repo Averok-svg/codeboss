@@ -87,7 +87,7 @@ export function analyzeCommits(
 }
 
 export function findingToIssueBody(f: Finding): string {
-  return `## CodeBoss Alert (strict approval required)
+  return `## CodeBoss Alert (strict multi-reviewer gate)
 
 **Severity:** ${f.severity.toUpperCase()}  
 **Category:** ${f.category}  
@@ -99,22 +99,34 @@ ${f.description}
 
 ### Automated protocol (do not skip)
 
-**Claude Code**
-1. Investigate with \`git show\` on the referenced commit — never trust this description alone
-2. Comment analysis: genuine issue vs false positive + evidence
-3. If genuine: implement the fix (tsc/lint/tests as project requires)
-4. Comment a short summary of what changed
-5. **DO NOT CLOSE** this issue
-6. Leave labels \`codeboss\` + \`awaiting-grok-review\` in place
+**1) Claude Code (fixer)**
+- Investigate with \`git show\` on the referenced commit — never trust this description alone
+- Comment: genuine vs false positive + evidence
+- If genuine: implement the fix (tsc/lint/tests as required)
+- Comment a short resolution summary
+- **DO NOT CLOSE**
+- Keep labels \`codeboss\` + \`awaiting-grok-review\`
 
-**Grok / human reviewer**
-7. Review Claude's comment + code change
-8. Comment exactly: \`APPROVED\` when satisfied (or request changes)
+**2) CodeBoss Master (Google AI Studio) — required review comments**
+After Claude has commented (and fixed if needed), CodeBoss Master must comment on THIS issue:
+- **Genuineness review:** is the original flag real or false positive? (with reasons)
+- **Resolution review:** if Claude fixed something, was the fix adequate and safe?
+- If not OK: comment what must change (do not approve)
+- If OK: comment exactly this line (plus a short rationale):
+  \`REVIEWED AND FINAL APPROVED BY CODEBOSS MASTER\`
 
-**Claude Code (after approval only)**
-9. Only if an issue comment contains \`APPROVED\`, remove \`awaiting-grok-review\` and close the issue
-10. If changes were requested, fix again and wait for a new \`APPROVED\`
+**3) Grok (final gate)**
+- Review Claude + CodeBoss Master comments
+- If satisfied, comment exactly: \`APPROVED\`
+- If not, request changes
+
+**4) Claude Code (close only after both approvals)**
+- Close ONLY when the issue comments include BOTH:
+  - \`REVIEWED AND FINAL APPROVED BY CODEBOSS MASTER\`
+  - \`APPROVED\`
+- Then remove \`awaiting-grok-review\` if possible and close
+- If either reviewer requested changes: fix, comment again, wait for new approvals
 
 ---
-*CodeBoss automated monitor · Close is blocked until Grok approval*`;
+*CodeBoss · Claude fixes · CodeBoss Master reviews · Grok final APPROVED · then close*`;
 }
