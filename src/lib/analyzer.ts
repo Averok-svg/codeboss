@@ -87,25 +87,34 @@ export function analyzeCommits(
 }
 
 export function findingToIssueBody(f: Finding): string {
-  return `## CodeBoss Discussion
+  return `## CodeBoss Alert (strict approval required)
 
 **Severity:** ${f.severity.toUpperCase()}  
 **Category:** ${f.category}  
-**Source:** ${f.source}
+**Source:** ${f.source}  
+**Status gate:** awaiting-grok-review
 
 ### Problem
 ${f.description}
 
-### Discussion Protocol
-Claude Code — please follow these steps:
+### Automated protocol (do not skip)
 
-1. **Investigate** the related code and comment your findings here
-2. **Discuss** possible approaches or risks (add a comment)
-3. If anything is unclear, **ask questions** as comments
-4. Only after discussion, **implement the fix**
-5. Comment a short summary of what you changed
-6. Close this issue when done
+**Claude Code**
+1. Investigate with \`git show\` on the referenced commit — never trust this description alone
+2. Comment analysis: genuine issue vs false positive + evidence
+3. If genuine: implement the fix (tsc/lint/tests as project requires)
+4. Comment a short summary of what changed
+5. **DO NOT CLOSE** this issue
+6. Leave labels \`codeboss\` + \`awaiting-grok-review\` in place
+
+**Grok / human reviewer**
+7. Review Claude's comment + code change
+8. Comment exactly: \`APPROVED\` when satisfied (or request changes)
+
+**Claude Code (after approval only)**
+9. Only if an issue comment contains \`APPROVED\`, remove \`awaiting-grok-review\` and close the issue
+10. If changes were requested, fix again and wait for a new \`APPROVED\`
 
 ---
-*CodeBoss (automated monitor) · Discussion happens in this issue's comments*`;
+*CodeBoss automated monitor · Close is blocked until Grok approval*`;
 }

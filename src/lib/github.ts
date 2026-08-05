@@ -68,7 +68,7 @@ export async function createCodeBossIssue(
     repo: config.repo,
     title: `[CodeBoss] ${issue.title}`,
     body: `${issue.body}\n\n---\n*Created automatically by CodeBoss*`,
-    labels: ["codeboss", ...(issue.labels || [])],
+    labels: ["codeboss", "awaiting-grok-review", ...(issue.labels || [])],
   });
   return {
     number: data.number,
